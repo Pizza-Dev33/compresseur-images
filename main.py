@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Compresseur d'images - Libre et gratuit
-Compression avec préservation de la qualité.
-Dépendance : Pillow  ->  pip install Pillow
-Lancer     :  python main.py
+Compresseur d'images moderne avec Glisser-Déposer
+Dépendances : Pillow, tkinterdnd2 -> pip install Pillow tkinterdnd2
+Lancer     : python main.py
 """
 
 import os
@@ -11,235 +10,210 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image
 
-# Extensions reconnues
+# On essaie d'importer le module de Glisser-Déposer
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+    HAS_DND = True
+except ImportError:
+    HAS_DND = False
+
 EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
-Image.MAX_IMAGE_PIXELS = 500_000_000  # sécurité pour très grandes images
+Image.MAX_IMAGE_PIXELS = 500_000_000
 
 
 def taille_lisible(nb_octets: int) -> str:
-    """Convertit une taille en octets vers un texte lisible (Ko, Mo)."""
     if nb_octets >= 1024 * 1024:
         return f"{nb_octets / (1024 * 1024):.2f} Mo"
     return f"{nb_octets / 1024:.1f} Ko"
 
 
 def compresser_image(chemin_src: str, dossier_dest: str, qualite: int,
-                     redimensionner: bool, taille_max: int) -> tuple:
-    """
-    Compresse une image SANS détruire la qualité :
-    - qualité JPEG/WebP réglable (85 = bon compromis recommandé)
-    - optimisation des octets sans perte
-    - redimensionnement optionnel (jamais agrandir, seulement réduire)
-    Retourne (nom, taille_avant, taille_apres) ou lève une exception.
-    """
+                     redimensionner: bool, taille_max: int, format_sortie: str) -> tuple:
     nom = os.path.basename(chemin_src)
+    nom_sans_ext, ext_origine = os.path.splitext(nom)
+    
     with Image.open(chemin_src) as img:
-        img = img.convert("RGB")
+        if format_sortie == "JPEG" and img.mode in ("RGBA", "LA"):
+            fond = Image.new("RGB", img.size, (255, 255, 255))
+            fond.paste(img, mask=img.split()[-1])
+            img = fond
+        elif format_sortie == "ORIGINE" and ext_origine.lower() in (".jpg", ".jpeg"):
+            img = img.convert("RGB")
 
-        # Redimensionner seulement si l'image est PLUS GRANDE que la limite
         if redimensionner:
             largeur, hauteur = img.size
             if max(largeur, hauteur) > taille_max:
                 ratio = taille_max / max(largeur, hauteur)
-                # LANCZOS = meilleur algorithme pour garder la netteté
-                img = img.resize((int(largeur * ratio), int(hauteur * ratio)),
-                                 Image.LANCZOS)
+                img = img.resize((int(largeur * ratio), int(hauteur * ratio)), Image.LANCZOS)
 
-        # On enregistre toujours en JPEG : c'est là que le gain de poids se fait.
-        # Si la compression rendait le fichier PLUS LOURD, on garde l'original.
-        nouveau_nom = os.path.splitext(nom)[0] + ".jpg"
+        if format_sortie == "ORIGINE":
+            fmt = "WEBP" if ext_origine.lower() == ".webp" else ("PNG" if ext_origine.lower() == ".png" else "JPEG")
+            ext_finale = ext_origine.lower()
+        else:
+            fmt = format_sortie
+            ext_finale = ".webp" if format_sortie == "WEBP" else ".jpg"
+
+        nouveau_nom = nom_sans_ext + ext_finale
         chemin_dest = os.path.join(dossier_dest, nouveau_nom)
 
-        img.save(chemin_dest, "JPEG",
-                 quality=qualite,       # niveau de qualité choisi
-                 optimize=True,         # compression optimale sans perte visuelle
-                 progressive=True)      # chargement progressif sur le web
+        if fmt == "PNG":
+            img.save(chemin_dest, "PNG", optimize=True)
+        elif fmt == "WEBP":
+            img.save(chemin_dest, "WEBP", quality=qualite, method=6)
+        else:
+            img.save(chemin_dest, "JPEG", quality=qualite, optimize=True, progressive=True)
 
     taille_avant = os.path.getsize(chemin_src)
     taille_apres = os.path.getsize(chemin_dest)
-    if taille_apres >= taille_avant:
+    
+    if taille_apres >= taille_avant and ext_origine.lower() == ext_finale:
         os.remove(chemin_dest)
         return (nom, taille_avant, taille_avant)
+        
     return (nom, taille_avant, taille_apres)
 
 
-class Application(tk.Tk):
+# On adapte la classe selon la présence de tkinterdnd2
+BaseClass = TkinterDnD.Tk if HAS_DND else tk.Tk
+
+class Application(BaseClass):
     def __init__(self):
         super().__init__()
-        self.title("Compresseur d'images - gratuit, sans pub")
-        self.geometry("680x520")
-        self.minsize(560, 460)
+        self.title("Compresseur d'images - Glisser-Déposer")
+        self.geometry("700x600")
+        self.minsize(600, 500)
 
-        self.dossier_source = ""
-        self.resultats = []
-
+        self.fichiers_selectionnes = []
         self._construire_interface()
 
     def _construire_interface(self):
-        # --- Titre ---
-        titre = tk.Label(self, text="Compresseur d'images",
-                         font=("Segoe UI", 18, "bold"))
-        titre.pack(pady=(15, 5))
-        sous_titre = tk.Label(self,
-                              text="Qualité préservée · 100 % gratuit · fonctionne hors ligne",
-                              font=("Segoe UI", 10), fg="gray")
-        sous_titre.pack()
+        tk.Label(self, text="Compresseur d'images Pro", font=("Segoe UI", 18, "bold")).pack(pady=(15, 5))
+        
+        # Zone de dépôt / Sélection
+        self.cadre_depot = tk.LabelFrame(self, text="1. Déposer ou Importer des images", font=("Segoe UI", 10, "bold"))
+        self.cadre_depot.pack(pady=10, padx=20, fill="x")
 
-        # --- Choix du dossier ---
-        cadre_choix = tk.Frame(self)
-        cadre_choix.pack(pady=15, padx=20, fill="x")
+        texte_zone = "Glissez-déposez vos images ICI\nou cliquez pour sélectionner" if HAS_DND else "Cliquez pour sélectionner vos images"
+        
+        self.bouton_zone = tk.Button(
+            self.cadre_depot, text=texte_zone, font=("Segoe UI", 11),
+            bg="#eef2fa", fg="#2d6cdf", relief="dashed", bd=2, padding=20,
+            command=self.importer_fichiers
+        )
+        self.bouton_zone.pack(fill="x", padx=10, pady=10)
 
-        self.bouton_choisir = tk.Button(
-            cadre_choix, text="1. Choisir un dossier d'images",
-            command=self.choisir_dossier, font=("Segoe UI", 11),
-            bg="#2d6cdf", fg="white", padx=10, pady=5)
-        self.bouton_choisir.pack()
+        if HAS_DND:
+            self.bouton_zone.drop_target_register(DND_FILES)
+            self.bouton_zone.dnd_bind('<<Drop>>', self.recuperer_fichiers_glisses)
 
-        self.label_dossier = tk.Label(cadre_choix, text="Aucun dossier choisi",
-                                      fg="gray", wraplength=600)
-        self.label_dossier.pack(pady=5)
+        self.label_statut = tk.Label(self.cadre_depot, text="Aucune image sélectionnée", fg="gray")
+        self.label_statut.pack(pady=5)
 
-        # --- Réglages qualité ---
-        cadre_reglages = tk.LabelFrame(self, text="2. Réglages qualité",
-                                       font=("Segoe UI", 10))
+        # Configuration
+        cadre_reglages = tk.LabelFrame(self, text="2. Configuration de sortie", font=("Segoe UI", 10, "bold"))
         cadre_reglages.pack(pady=5, padx=20, fill="x")
 
+        ligne_fmt = tk.Frame(cadre_reglages)
+        ligne_fmt.pack(fill="x", padx=10, pady=5)
+        tk.Label(ligne_fmt, text="Format cible :", font=("Segoe UI", 10)).pack(side="left")
+        self.var_format = tk.StringVar(value="ORIGINE")
+        ttk.Radiobutton(ligne_fmt, text="Conserver l'original", variable=self.var_format, value="ORIGINE").pack(side="left", padx=10)
+        ttk.Radiobutton(ligne_fmt, text="Forcer WebP", variable=self.var_format, value="WEBP").pack(side="left", padx=10)
+        ttk.Radiobutton(ligne_fmt, text="Forcer JPEG", variable=self.var_format, value="JPEG").pack(side="left", padx=10)
+
         ligne_qualite = tk.Frame(cadre_reglages)
-        ligne_qualite.pack(fill="x", padx=10, pady=(8, 2))
-        tk.Label(ligne_qualite, text="Qualité :",
-                 font=("Segoe UI", 10)).pack(side="left")
+        ligne_qualite.pack(fill="x", padx=10, pady=5)
+        tk.Label(ligne_qualite, text="Qualité :", font=("Segoe UI", 10)).pack(side="left")
         self.valeur_qualite = tk.IntVar(value=85)
-        self.curseur = tk.Scale(
-            ligne_qualite, from_=40, to=100, orient="horizontal",
-            variable=self.valeur_qualite, length=300)
-        self.curseur.pack(side="left", padx=10)
-        tk.Label(ligne_qualite, text="(85 = recommandé, la qualité reste très bonne)",
-                 font=("Segoe UI", 9), fg="gray").pack(side="left")
+        tk.Scale(ligne_qualite, from_=40, to=100, orient="horizontal", variable=self.valeur_qualite, length=250).pack(side="left", padx=10)
 
-        # --- Redimensionnement optionnel ---
         self.redimensionner_var = tk.BooleanVar(value=False)
-        coche = tk.Checkbutton(
-            cadre_reglages, text="Réduire aussi les très grandes images (optionnel)",
-            variable=self.redimensionner_var, font=("Segoe UI", 10))
-        coche.pack(anchor="w", padx=10)
-
+        tk.Checkbutton(cadre_reglages, text="Réduire les dimensions des grandes images", variable=self.redimensionner_var, font=("Segoe UI", 10)).pack(anchor="w", padx=10)
+        
         ligne_taille = tk.Frame(cadre_reglages)
-        ligne_taille.pack(fill="x", padx=10, pady=(2, 8))
-        tk.Label(ligne_taille, text="Taille maximale (pixels) :",
-                 font=("Segoe UI", 10)).pack(side="left")
+        ligne_taille.pack(fill="x", padx=30, pady=2)
+        tk.Label(ligne_taille, text="Limite max (pixels) :", font=("Segoe UI", 10)).pack(side="left")
         self.champ_taille = tk.Entry(ligne_taille, width=8)
         self.champ_taille.insert(0, "1920")
         self.champ_taille.pack(side="left", padx=5)
-        tk.Label(ligne_taille, text="(ex. 1920 = idéal pour le web)",
-                 font=("Segoe UI", 9), fg="gray").pack(side="left")
 
-        # --- Bouton lancer ---
-        self.bouton_lancer = tk.Button(
-            self, text="3. Compresser !", command=self.lancer_compression,
-            font=("Segoe UI", 12, "bold"), bg="#28a745", fg="white",
-            padx=20, pady=6, state="disabled")
+        # Lancer
+        self.bouton_lancer = tk.Button(self, text="3. Compresser les images !", command=self.lancer_compression, font=("Segoe UI", 11, "bold"), bg="#28a745", fg="white", padx=20, pady=5, state="disabled")
         self.bouton_lancer.pack(pady=10)
 
-        # --- Résultats ---
-        cadre_resultats = tk.LabelFrame(self, text="Résultats",
-                                        font=("Segoe UI", 10))
+        # Résultats
+        cadre_resultats = tk.LabelFrame(self, text="Résultats", font=("Segoe UI", 10, "bold"))
         cadre_resultats.pack(pady=5, padx=20, fill="both", expand=True)
 
-        colonnes = ("image", "avant", "après", "gain")
-        self.tableau = ttk.Treeview(cadre_resultats, columns=colonnes,
-                                     show="headings", height=8)
-        self.tableau.heading("image", text="Image")
-        self.tableau.heading("avant", text="Avant")
-        self.tableau.heading("après", text="Après")
-        self.tableau.heading("gain", text="Gain")
-        self.tableau.column("image", width=260)
-        self.tableau.column("avant", width=90, anchor="center")
-        self.tableau.column("après", width=90, anchor="center")
-        self.tableau.column("gain", width=80, anchor="center")
-
-        defilement = tk.Scrollbar(cadre_resultats, orient="vertical",
-                                  command=self.tableau.yview)
+        self.tableau = ttk.Treeview(cadre_resultats, columns=("image", "avant", "après", "gain"), show="headings")
+        self.tableau.heading("image", text="Fichier")
+        self.tableau.heading("avant", text="Taille Initiale")
+        self.tableau.heading("après", text="Taille Compressée")
+        self.tableau.heading("gain", text="Réduction")
+        self.tableau.column("image", width=250)
+        self.tableau.column("avant", width=100, anchor="center")
+        self.tableau.column("après", width=100, anchor="center")
+        self.tableau.column("gain", width=100, anchor="center")
+        
+        defilement = tk.Scrollbar(cadre_resultats, orient="vertical", command=self.tableau.yview)
         self.tableau.configure(yscrollcommand=defilement.set)
-        self.tableau.pack(side="left", fill="both", expand=True, padx=(5, 0),
-                          pady=5)
-        defilement.pack(side="right", fill="y", pady=5, padx=(0, 5))
+        self.tableau.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        defilement.pack(side="right", fill="y", pady=5)
 
-    # ---------- Actions ----------
+    def importer_fichiers(self):
+        fichiers = filedialog.askopenfilenames(title="Sélectionner des images", filetypes=[("Images", "*.jpg *.jpeg *.png *.bmp *.webp")])
+        if fichiers:
+            self.fichiers_selectionnes = list(fichiers)
+            self.label_statut.config(text=f"{len(self.fichiers_selectionnes)} image(s) sélectionnée(s)", fg="black")
+            self.bouton_lancer.config(state="normal")
 
-    def choisir_dossier(self):
-        dossier = filedialog.askdirectory(title="Choisir le dossier contenant les images")
-        if dossier:
-            self.dossier_source = dossier
-            nb = len([f for f in os.listdir(dossier)
-                      if f.lower().endswith(EXTENSIONS)])
-            self.label_dossier.config(
-                text=f"{dossier}  ({nb} image(s) trouvée(s))", fg="black")
+    def recuperer_fichiers_glisses(self, event):
+        # Nettoyage du format des chemins envoyés par le Drag & Drop
+        data = event.data
+        if data.startswith('{'):
+            fichiers = [f.strip('{}') for f in data.split('} {')]
+        else:
+            fichiers = data.split()
+        
+        valides = [f for f in fichiers if f.lower().endswith(EXTENSIONS)]
+        if valides:
+            self.fichiers_selectionnes = valides
+            self.label_statut.config(text=f"{len(self.fichiers_selectionnes)} image(s) glissée(s) avec succès", fg="black")
             self.bouton_lancer.config(state="normal")
 
     def lancer_compression(self):
-        if not self.dossier_source:
-            messagebox.showwarning("Attention", "Choisis d'abord un dossier.")
+        if not self.fichiers_selectionnes:
             return
 
-        # Dossier de sortie : "images_compressees" à côté du dossier source
-        dossier_dest = os.path.join(self.dossier_source, "images_compressees")
+        for item in self.tableau.get_children():
+            self.tableau.delete(item)
+
+        # On crée un dossier sur le Bureau de l'utilisateur pour le résultat
+        bureau = os.path.join(os.path.expanduser("~"), "Desktop")
+        dossier_dest = os.path.join(bureau, "Images_Compressees")
         os.makedirs(dossier_dest, exist_ok=True)
 
         qualite = self.valeur_qualite.get()
         redimensionner = self.redimensionner_var.get()
+        format_sortie = self.var_format.get()
+        
         try:
             taille_max = int(self.champ_taille.get()) if redimensionner else 0
         except ValueError:
-            messagebox.showerror("Erreur", "La taille maximale doit être un nombre.")
+            messagebox.showerror("Erreur", "La taille maximale doit être un nombre valide.")
             return
 
-        fichiers = sorted(f for f in os.listdir(self.dossier_source)
-                          if f.lower().endswith(EXTENSIONS))
-        if not fichiers:
-            messagebox.showinfo("Info", "Aucune image trouvée dans ce dossier.")
-            return
-
-        # Nettoyer les anciens résultats
-        for ligne in self.tableau.get_children():
-            self.tableau.delete(ligne)
-
-        self.bouton_lancer.config(text="Compression en cours...", state="disabled")
-        self.update_idletasks()
-
-        total_avant = 0
-        total_apres = 0
-        erreurs = 0
-
-        for nom in fichiers:
-            chemin = os.path.join(self.dossier_source, nom)
+        succes = 0
+        for chemin in self.fichiers_selectionnes:
             try:
-                _, avant, apres = compresser_image(
-                    chemin, dossier_dest, qualite, redimensionner, taille_max)
-                total_avant += avant
-                total_apres += apres
-                gain = (1 - apres / avant) * 100 if avant else 0
-                self.tableau.insert("", "end", values=(
-                    nom, taille_lisible(avant), taille_lisible(apres),
-                    f"-{gain:.0f} %"))
-            except Exception as erreur:
-                erreurs += 1
-                self.tableau.insert("", "end", values=(
-                    nom, "Erreur", str(erreur)[:40], "-"))
-            self.update_idletasks()
+                nom, avant, apres = compresser_image(chemin, dossier_dest, qualite, redimensionner, taille_max, format_sortie)
+                gain = ((avant - apres) / avant) * 100 if avant > 0 else 0
+                self.tableau.insert("", "end", values=(nom, taille_lisible(avant), taille_lisible(apres), f"-{gain:.1f}%"))
+                succes += 1
+            except Exception as e:
+                self.tableau.insert("", "end", values=(os.path.basename(chemin), "Erreur", "-", str(e)))
 
-        if total_avant:
-            gain_global = (1 - total_apres / total_avant) * 100
-            self.tableau.insert("", "end", values=(
-                "TOTAL", taille_lisible(total_avant),
-                taille_lisible(total_apres), f"-{gain_global:.0f} %"))
-
-        self.bouton_lancer.config(text="3. Compresser !", state="normal")
-
-        message = (f"Terminé ! {len(fichiers) - erreurs} image(s) compressée(s)"
-                   f" dans :\n{dossier_dest}")
-        if erreurs:
-            message += f"\n\n{erreurs} image(s) en erreur."
-        messagebox.showinfo("Compression terminée", message)
+        messagebox.showinfo("Terminé", f"Traitement fini !\n{succes} image(s) enregistrées sur votre Bureau dans 'Images_Compressees'.")
 
 
 if __name__ == "__main__":
