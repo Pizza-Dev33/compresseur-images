@@ -10,7 +10,6 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image
 
-# On essaie d'importer le module de Glisser-Déposer
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
     HAS_DND = True
@@ -73,7 +72,6 @@ def compresser_image(chemin_src: str, dossier_dest: str, qualite: int,
     return (nom, taille_avant, taille_apres)
 
 
-# On adapte la classe selon la présence de tkinterdnd2
 BaseClass = TkinterDnD.Tk if HAS_DND else tk.Tk
 
 class Application(BaseClass):
@@ -89,7 +87,6 @@ class Application(BaseClass):
     def _construire_interface(self):
         tk.Label(self, text="Compresseur d'images Pro", font=("Segoe UI", 18, "bold")).pack(pady=(15, 5))
         
-        # Zone de dépôt / Sélection
         self.cadre_depot = tk.LabelFrame(self, text="1. Déposer ou Importer des images", font=("Segoe UI", 10, "bold"))
         self.cadre_depot.pack(pady=10, padx=20, fill="x")
 
@@ -100,7 +97,6 @@ class Application(BaseClass):
             bg="#eef2fa", fg="#2d6cdf", relief="groove", bd=2, pady=20,
             command=self.importer_fichiers
         )
-        self.bouton_zone.pack(fill="x", padx=10, java_pady=10 if not hasattr(self, 'pack') else None) # compatibilité
         self.bouton_zone.pack(fill="x", padx=10, pady=10)
 
         if HAS_DND:
@@ -110,7 +106,6 @@ class Application(BaseClass):
         self.label_statut = tk.Label(self.cadre_depot, text="Aucune image sélectionnée", fg="gray")
         self.label_statut.pack(pady=5)
 
-        # Configuration
         cadre_reglages = tk.LabelFrame(self, text="2. Configuration de sortie", font=("Segoe UI", 10, "bold"))
         cadre_reglages.pack(pady=5, padx=20, fill="x")
 
@@ -138,11 +133,9 @@ class Application(BaseClass):
         self.champ_taille.insert(0, "1920")
         self.champ_taille.pack(side="left", padx=5)
 
-        # Lancer
         self.bouton_lancer = tk.Button(self, text="3. Compresser les images !", command=self.lancer_compression, font=("Segoe UI", 11, "bold"), bg="#28a745", fg="white", padx=20, pady=5, state="disabled")
         self.bouton_lancer.pack(pady=10)
 
-        # Résultats
         cadre_resultats = tk.LabelFrame(self, text="Résultats", font=("Segoe UI", 10, "bold"))
         cadre_resultats.pack(pady=5, padx=20, fill="both", expand=True)
 
