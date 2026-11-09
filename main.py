@@ -97,9 +97,10 @@ class Application(BaseClass):
         
         self.bouton_zone = tk.Button(
             self.cadre_depot, text=texte_zone, font=("Segoe UI", 11),
-            bg="#eef2fa", fg="#2d6cdf", relief="dashed", bd=2, padding=20,
+            bg="#eef2fa", fg="#2d6cdf", relief="groove", bd=2, pady=20,
             command=self.importer_fichiers
         )
+        self.bouton_zone.pack(fill="x", padx=10, java_pady=10 if not hasattr(self, 'pack') else None) # compatibilité
         self.bouton_zone.pack(fill="x", padx=10, pady=10)
 
         if HAS_DND:
@@ -168,7 +169,6 @@ class Application(BaseClass):
             self.bouton_lancer.config(state="normal")
 
     def recuperer_fichiers_glisses(self, event):
-        # Nettoyage du format des chemins envoyés par le Drag & Drop
         data = event.data
         if data.startswith('{'):
             fichiers = [f.strip('{}') for f in data.split('} {')]
@@ -188,7 +188,6 @@ class Application(BaseClass):
         for item in self.tableau.get_children():
             self.tableau.delete(item)
 
-        # On crée un dossier sur le Bureau de l'utilisateur pour le résultat
         bureau = os.path.join(os.path.expanduser("~"), "Desktop")
         dossier_dest = os.path.join(bureau, "Images_Compressees")
         os.makedirs(dossier_dest, exist_ok=True)
