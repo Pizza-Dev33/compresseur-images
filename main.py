@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Compresseur d'images moderne avec Glisser-Déposer
+Compresseur d'images Pro + Créateur de PDF léger
 Dépendances : Pillow, tkinterdnd2 -> pip install Pillow tkinterdnd2
 Lancer     : python main.py
 """
@@ -67,9 +67,13 @@ def compresser_image(chemin_src: str, dossier_dest: str, qualite: int,
     
     if taille_apres >= taille_avant and ext_origine.lower() == ext_finale:
         os.remove(chemin_dest)
-        return (nom, taille_avant, taille_avant)
+        # On copie quand même le fichier original dans le dossier de sortie pour le PDF éventuel
+        import shutil
+        chemin_dest = os.path.join(dossier_dest, nom)
+        shutil.copy2(chemin_src, chemin_dest)
+        return (nom, taille_avant, taille_avant, chemin_dest)
         
-    return (nom, taille_avant, taille_apres)
+    return (nom, taille_avant, taille_apres, chemin_dest)
 
 
 BaseClass = TkinterDnD.Tk if HAS_DND else tk.Tk
@@ -77,9 +81,9 @@ BaseClass = TkinterDnD.Tk if HAS_DND else tk.Tk
 class Application(BaseClass):
     def __init__(self):
         super().__init__()
-        self.title("Compresseur d'images - Glisser-Déposer")
-        self.geometry("700x600")
-        self.minsize(600, 500)
+        self.title("Compresseur d'images Pro & PDF")
+        self.geometry("700x630")
+        self.minsize(600, 540)
 
         self.fichiers_selectionnes = []
         self._construire_interface()
@@ -94,7 +98,7 @@ class Application(BaseClass):
         
         self.bouton_zone = tk.Button(
             self.cadre_depot, text=texte_zone, font=("Segoe UI", 11),
-            bg="#eef2fa", fg="#2d6cdf", relief="groove", bd=2, pady=20,
+            bg="#eef2fa", fg="#2d6cdf", relief="groove", bd=2, pady=18,
             command=self.importer_fichiers
         )
         self.bouton_zone.pack(fill="x", padx=10, pady=10)
@@ -132,6 +136,16 @@ class Application(BaseClass):
         self.champ_taille = tk.Entry(ligne_taille, width=8)
         self.champ_taille.insert(0, "1920")
         self.champ_taille.pack(side="left", padx=5)
+
+        # Nouvelle option : Création de PDF
+        self.creer_pdf_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(
+            cadre_reglages, 
+            text="📄 Tout assembler dans un seul fichier PDF léger (idéal pour documents)", 
+            variable=self.creer_pdf_var, 
+            font=("Segoe UI", 10, "bold"),
+            fg="#2d6cdf"
+        ).pack(anchor="w", padx=10, pady=(6, 4))
 
         self.bouton_lancer = tk.Button(self, text="3. Compresser les images !", command=self.lancer_compression, font=("Segoe UI", 11, "bold"), bg="#28a745", fg="white", padx=20, pady=5, state="disabled")
         self.bouton_lancer.pack(pady=10)
@@ -188,6 +202,7 @@ class Application(BaseClass):
         qualite = self.valeur_qualite.get()
         redimensionner = self.redimensionner_var.get()
         format_sortie = self.var_format.get()
+        creer_pdf = self.creer_pdf_var.get()
         
         try:
             taille_max = int(self.champ_taille.get()) if redimensionner else 0
@@ -196,18 +211,10 @@ class Application(BaseClass):
             return
 
         succes = 0
+        chemins_compresses = []
+        
         for chemin in self.fichiers_selectionnes:
             try:
-                nom, avant, apres = compresser_image(chemin, dossier_dest, qualite, redimensionner, taille_max, format_sortie)
+                nom, avant, apres, chemin_final = compresser_image(chemin, dossier_dest, qualite, redimensionner, taille_max, format_sortie)
                 gain = ((avant - apres) / avant) * 100 if avant > 0 else 0
                 self.tableau.insert("", "end", values=(nom, taille_lisible(avant), taille_lisible(apres), f"-{gain:.1f}%"))
-                succes += 1
-            except Exception as e:
-                self.tableau.insert("", "end", values=(os.path.basename(chemin), "Erreur", "-", str(e)))
-
-        messagebox.showinfo("Terminé", f"Traitement fini !\n{succes} image(s) enregistrées sur votre Bureau dans 'Images_Compressees'.")
-
-
-if __name__ == "__main__":
-    app = Application()
-    app.mainloop()
