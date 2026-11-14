@@ -6,6 +6,7 @@ Lancer     : python main.py
 """
 
 import os
+import shutil
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image
@@ -30,7 +31,7 @@ def compresser_image(chemin_src: str, dossier_dest: str, qualite: int,
                      redimensionner: bool, taille_max: int, format_sortie: str) -> tuple:
     nom = os.path.basename(chemin_src)
     nom_sans_ext, ext_origine = os.path.splitext(nom)
-    
+
     with Image.open(chemin_src) as img:
         if format_sortie == "JPEG" and img.mode in ("RGBA", "LA"):
             fond = Image.new("RGB", img.size, (255, 255, 255))
@@ -64,19 +65,18 @@ def compresser_image(chemin_src: str, dossier_dest: str, qualite: int,
 
     taille_avant = os.path.getsize(chemin_src)
     taille_apres = os.path.getsize(chemin_dest)
-    
+
     if taille_apres >= taille_avant and ext_origine.lower() == ext_finale:
         os.remove(chemin_dest)
-        # On copie quand même le fichier original dans le dossier de sortie pour le PDF éventuel
-        import shutil
         chemin_dest = os.path.join(dossier_dest, nom)
         shutil.copy2(chemin_src, chemin_dest)
         return (nom, taille_avant, taille_avant, chemin_dest)
-        
+
     return (nom, taille_avant, taille_apres, chemin_dest)
 
 
 BaseClass = TkinterDnD.Tk if HAS_DND else tk.Tk
+
 
 class Application(BaseClass):
     def __init__(self):
@@ -90,12 +90,12 @@ class Application(BaseClass):
 
     def _construire_interface(self):
         tk.Label(self, text="Compresseur d'images Pro", font=("Segoe UI", 18, "bold")).pack(pady=(15, 5))
-        
+
         self.cadre_depot = tk.LabelFrame(self, text="1. Déposer ou Importer des images", font=("Segoe UI", 10, "bold"))
         self.cadre_depot.pack(pady=10, padx=20, fill="x")
 
         texte_zone = "Glissez-déposez vos images ICI\nou cliquez pour sélectionner" if HAS_DND else "Cliquez pour sélectionner vos images"
-        
+
         self.bouton_zone = tk.Button(
             self.cadre_depot, text=texte_zone, font=("Segoe UI", 11),
             bg="#eef2fa", fg="#2d6cdf", relief="groove", bd=2, pady=18,
@@ -129,7 +129,7 @@ class Application(BaseClass):
 
         self.redimensionner_var = tk.BooleanVar(value=False)
         tk.Checkbutton(cadre_reglages, text="Réduire les dimensions des grandes images", variable=self.redimensionner_var, font=("Segoe UI", 10)).pack(anchor="w", padx=10)
-        
+
         ligne_taille = tk.Frame(cadre_reglages)
         ligne_taille.pack(fill="x", padx=30, pady=2)
         tk.Label(ligne_taille, text="Limite max (pixels) :", font=("Segoe UI", 10)).pack(side="left")
@@ -137,12 +137,11 @@ class Application(BaseClass):
         self.champ_taille.insert(0, "1920")
         self.champ_taille.pack(side="left", padx=5)
 
-        # Nouvelle option : Création de PDF
         self.creer_pdf_var = tk.BooleanVar(value=False)
         tk.Checkbutton(
-            cadre_reglages, 
-            text="📄 Tout assembler dans un seul fichier PDF léger (idéal pour documents)", 
-            variable=self.creer_pdf_var, 
+            cadre_reglages,
+            text="Tout assembler dans un seul fichier PDF léger (idéal pour documents)",
+            variable=self.creer_pdf_var,
             font=("Segoe UI", 10, "bold"),
             fg="#2d6cdf"
         ).pack(anchor="w", padx=10, pady=(6, 4))
@@ -162,7 +161,7 @@ class Application(BaseClass):
         self.tableau.column("avant", width=100, anchor="center")
         self.tableau.column("après", width=100, anchor="center")
         self.tableau.column("gain", width=100, anchor="center")
-        
+
         defilement = tk.Scrollbar(cadre_resultats, orient="vertical", command=self.tableau.yview)
         self.tableau.configure(yscrollcommand=defilement.set)
         self.tableau.pack(side="left", fill="both", expand=True, padx=5, pady=5)
@@ -181,7 +180,7 @@ class Application(BaseClass):
             fichiers = [f.strip('{}') for f in data.split('} {')]
         else:
             fichiers = data.split()
-        
+
         valides = [f for f in fichiers if f.lower().endswith(EXTENSIONS)]
         if valides:
             self.fichiers_selectionnes = valides
@@ -203,7 +202,7 @@ class Application(BaseClass):
         redimensionner = self.redimensionner_var.get()
         format_sortie = self.var_format.get()
         creer_pdf = self.creer_pdf_var.get()
-        
+
         try:
             taille_max = int(self.champ_taille.get()) if redimensionner else 0
         except ValueError:
@@ -212,9 +211,15 @@ class Application(BaseClass):
 
         succes = 0
         chemins_compresses = []
-        
+
         for chemin in self.fichiers_selectionnes:
             try:
                 nom, avant, apres, chemin_final = compresser_image(chemin, dossier_dest, qualite, redimensionner, taille_max, format_sortie)
                 gain = ((avant - apres) / avant) * 100 if avant > 0 else 0
                 self.tableau.insert("", "end", values=(nom, taille_lisible(avant), taille_lisible(apres), f"-{gain:.1f}%"))
+                chemins_compresses.append(chemin_final)
+                succes += 1
+            except Exception as e:
+                self.tableau.insert("", "end", values=(os.path.basename(chemin), "Erreur", "-", str(e)))
+
+        msg_pdf = ""
